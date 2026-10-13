@@ -14,7 +14,8 @@ struct TextDisplaySnapshot: Equatable {
         let line: BufferLine
         let generation: UInt64
         let cells: [Cell]
-        static func ==(lhs: Self, rhs: Self) -> Bool { lhs.cells == rhs.cells }
+        var cacheable: Bool = true
+        static func ==(lhs: Self, rhs: Self) -> Bool { lhs.cacheable == rhs.cacheable && lhs.cells == rhs.cells }
     }
     let buffer: Buffer
     let bounds: CGRect
@@ -47,7 +48,7 @@ extension TerminalView {
     /// Keep only layouts for unchanged rows of this text-only viewport. Complex
     /// presentation uses the original path, and no scrollback is cached.
     func prepareTextLayoutsForDraw() {
-        guard let snapshot = textDisplaySnapshot() else {
+        guard let snapshot = textDisplaySnapshot(layoutOnly: true) else {
             clearTextLayoutCache(); return
         }
         if let previous = lastTextLayoutSnapshot, previous.samePresentation(as: snapshot) {
@@ -64,7 +65,8 @@ extension TerminalView {
 
     func textLayoutForDraw(row: Int, line: BufferLine, cols: Int) -> ViewLineInfo {
         guard let snapshot = lastTextLayoutSnapshot,
-              row >= snapshot.firstRow, row < snapshot.firstRow + snapshot.cells.count else {
+              row >= snapshot.firstRow, row < snapshot.firstRow + snapshot.cells.count,
+              snapshot.cells[row - snapshot.firstRow].cacheable else {
             return buildAttributedString(row: row, line: line, cols: cols)
         }
         if let cached = textLayouts[row] { return cached }
@@ -73,7 +75,7 @@ extension TerminalView {
         return layout
     }
 
-    func textDisplaySnapshot() -> TextDisplaySnapshot? {
+    func textDisplaySnapshot(layoutOnly: Bool = false) -> TextDisplaySnapshot? {
         let buffer = terminal.displayBuffer
         // Complex presentation keeps the existing renderer path. This is a cache
         // admission bound, not a terminal size or content limit.
@@ -84,23 +86,33 @@ extension TerminalView {
         let start = buffer.yDisp, end = min(buffer.lines.count, start + buffer.rows + 1)
         guard start >= 0, end > start else { return nil }
         var rows: [TextDisplaySnapshot.Row] = []
-        for row in start..<end {
+        rowLoop: for row in start..<end {
             let line = buffer.lines[row]
             // Wrapped/BiDi paragraphs may depend on cells outside this viewport.
-            guard !line.isWrapped, line.bidiState == .default,
-                  line.renderMode == .single, line.images?.isEmpty != false else { return nil }
+            // Exclude the complete wrapped paragraph, including its first row.
+            let continues = row + 1 < buffer.lines.count && buffer.lines[row + 1].isWrapped
+            guard !line.isWrapped, !continues, line.bidiState == .default,
+                  line.renderMode == .single, line.images?.isEmpty != false else {
+                guard layoutOnly else { return nil }
+                rows.append(.init(line: line, generation: line.generation, cells: [], cacheable: false))
+                continue
+            }
             let screenRow = row - start
-            if let old = lastTextDisplaySnapshot, old.buffer === buffer,
+            if let old = layoutOnly ? lastTextLayoutSnapshot : lastTextDisplaySnapshot, old.buffer === buffer,
                old.firstRow == start, screenRow < old.cells.count,
-               old.cells[screenRow].line === line,
+               old.cells[screenRow].cacheable, old.cells[screenRow].line === line,
                old.cells[screenRow].generation == line.generation {
                 rows.append(old.cells[screenRow]); continue
             }
             var cells: [TextDisplaySnapshot.Cell] = []
             for cell in line.getData() {
-                guard !cell.hasPayload else { return nil }
                 let character = terminal.getCharacter(for:cell)
-                guard !character.unicodeScalars.contains(where:{ TerminalBidi.isRTLTrigger($0.value) }) else { return nil }
+                guard !cell.hasPayload,
+                      !character.unicodeScalars.contains(where:{ TerminalBidi.isRTLTrigger($0.value) }) else {
+                    guard layoutOnly else { return nil }
+                    rows.append(.init(line: line, generation: line.generation, cells: [], cacheable: false))
+                    continue rowLoop
+                }
                 cells.append(.init(character:character,width:cell.width,attribute:cell.attribute,payload:cell.payload.code))
             }
             rows.append(.init(line:line,generation:line.generation,cells:cells))
