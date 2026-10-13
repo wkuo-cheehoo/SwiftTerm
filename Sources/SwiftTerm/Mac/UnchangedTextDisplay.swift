@@ -40,6 +40,34 @@ struct TextDisplaySnapshot: Equatable {
 }
 
 extension TerminalView {
+    /// Clip data-driven repaint to changed rows. Complex rows always repaint
+    /// when dirty, but do not disable comparisons for unrelated simple rows.
+    /// A nil range means no text changed; callers retain explicit AppKit damage.
+    func textRedrawRange(_ dirty: ClosedRange<Int>) -> ClosedRange<Int>? {
+        let previous = lastTextDisplaySnapshot
+        let current = textDisplaySnapshot(layoutOnly: true)
+        lastTextDisplaySnapshot = current
+        guard let current, let previous, current.samePresentation(as: previous),
+              dirty.lowerBound >= 0, dirty.upperBound < terminal.rows,
+              current.cells.count == previous.cells.count else { return dirty }
+        // Dirty rows are relative to the live screen. While scrolled back,
+        // preserve the existing whole-viewport equality check rather than
+        // applying that range to historical rows.
+        if terminal.displayBuffer.yDisp != terminal.displayBuffer.yBase {
+            let identical = zip(current.cells, previous.cells).allSatisfy {
+                $0.cacheable && $1.cacheable && $0 == $1
+            }
+            return identical ? nil : dirty
+        }
+        let changed = dirty.filter { row in
+            guard row < current.cells.count else { return true }
+            let now = current.cells[row], before = previous.cells[row]
+            return !now.cacheable || !before.cacheable || now != before
+        }
+        guard let first = changed.first, let last = changed.last else { return nil }
+        return first...last
+    }
+
     func clearTextLayoutCache() {
         lastTextLayoutSnapshot = nil
         textLayouts.removeAll(keepingCapacity: false)

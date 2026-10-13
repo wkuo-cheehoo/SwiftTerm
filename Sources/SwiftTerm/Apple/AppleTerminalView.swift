@@ -2319,7 +2319,7 @@ extension TerminalView {
             return
         }
         updateCursorPosition()
-        guard let (rowStart, rowEnd) = terminal.getUpdateRange () else {
+        guard var (rowStart, rowEnd) = terminal.getUpdateRange () else {
             if notifyUpdateChanges {
                 let buffer = terminal.displayBuffer
                 let y = buffer.yDisp+buffer.y
@@ -2370,10 +2370,12 @@ extension TerminalView {
         // resize, etc.) and the Metal renderer. Only suppress a new data-driven
         // invalidation when the visible text is unchanged since the last update.
         if metalView == nil {
-            let snapshot = textDisplaySnapshot()
-            let unchanged = snapshot != nil && snapshot == lastTextDisplaySnapshot
-            lastTextDisplaySnapshot = snapshot
-            if unchanged && !needsDisplay { return }
+            let changed = rowStart <= rowEnd ? textRedrawRange(rowStart...rowEnd) : nil
+            if !needsDisplay, rowStart <= rowEnd {
+                guard let changed else { return }
+                rowStart = changed.lowerBound
+                rowEnd = changed.upperBound
+            }
         }
         #endif
 
