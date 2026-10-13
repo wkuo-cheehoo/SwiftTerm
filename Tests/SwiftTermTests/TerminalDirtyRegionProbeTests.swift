@@ -35,7 +35,9 @@ import XCTest
         view.areas = []
         view.feed(text:"\u{1b}[2J\u{1b}[Hnew screen")
         try await flush(); XCTAssertFalse(view.areas.isEmpty,"Clearing must repaint")
-        view.feed(text:"\u{1b}[Hمرحبا")
+        view.feed(text:"\u{1b}[2J\u{1b}[H\u{1b}]8;;https://example.com\u{7}link\u{1b}]8;;\u{7}")
+        try await flush(); XCTAssertNil(view.textDisplaySnapshot(),"Explicit links keep highlighting updates")
+        view.feed(text:"\u{1b}[2J\u{1b}[Hمرحبا")
         try await flush(); XCTAssertNil(view.textDisplaySnapshot(),"BiDi keeps its dependency-aware path")
     }
 

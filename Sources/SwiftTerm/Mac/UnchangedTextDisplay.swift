@@ -60,6 +60,7 @@ extension TerminalView {
             }
             var cells: [TextDisplaySnapshot.Cell] = []
             for cell in line.getData() {
+                guard !cell.hasPayload else { return nil }
                 let character = terminal.getCharacter(for:cell)
                 guard !character.unicodeScalars.contains(where:{ TerminalBidi.isRTLTrigger($0.value) }) else { return nil }
                 cells.append(.init(character:character,width:cell.width,attribute:cell.attribute,payload:cell.payload.code))
