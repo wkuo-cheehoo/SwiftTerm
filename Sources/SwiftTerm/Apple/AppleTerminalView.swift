@@ -289,6 +289,7 @@ extension TerminalView {
     {
         #if os(macOS)
         lastTextDisplaySnapshot = nil
+        clearTextLayoutCache()
         #endif
         self.attributes = [:]
         self.urlAttributes = [:]
@@ -570,6 +571,7 @@ extension TerminalView {
     {
         #if os(macOS)
         lastTextDisplaySnapshot = nil
+        clearTextLayoutCache()
         #endif
         urlAttributes = [:]
         attributes = [:]
@@ -1774,6 +1776,9 @@ extension TerminalView {
         let lineLeading = CTFontGetLeading(fontSet.normal)
         let yOffset = ceil(lineDescent+lineLeading)
         let displayBuffer = terminal.displayBuffer
+        #if os(macOS)
+        prepareTextLayoutsForDraw()
+        #endif
 
         func calcLineOffset (forRow: Int) -> CGFloat {
             cellDimension.height * CGFloat (forRow-bufferOffset+1)
@@ -1877,7 +1882,11 @@ extension TerminalView {
             } 
             #endif
             let line = displayBuffer.lines [row]
+            #if os(macOS)
+            let lineInfo = textLayoutForDraw(row: row, line: line, cols: displayBuffer.cols)
+            #else
             let lineInfo = buildAttributedString(row: row, line: line, cols: displayBuffer.cols)
+            #endif
             let rowBase = lineOrigin.y + cellDimension.height
             var underTextImages: [AppleImage] = []
             var overTextKittyImages: [AppleImage] = []

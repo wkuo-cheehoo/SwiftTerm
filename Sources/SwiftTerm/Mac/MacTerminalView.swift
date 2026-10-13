@@ -340,6 +340,8 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     public var disableFullRedrawOnAnyChanges = false
 
     var lastTextDisplaySnapshot: TextDisplaySnapshot?
+    var lastTextLayoutSnapshot: TextDisplaySnapshot?
+    var textLayouts: [Int: ViewLineInfo] = [:]
     var fontSet: FontSet
 
     /// Options used to create the `Terminal` that backs this view; set by `init(frame:font:options:)`,

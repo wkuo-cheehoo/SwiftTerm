@@ -26,15 +26,53 @@ struct TextDisplaySnapshot: Equatable {
     let customGlyphs: Bool
     let antiAliasGlyphs: Bool
     let cells: [Row]
-    static func ==(lhs: Self, rhs: Self) -> Bool {
-        lhs.buffer === rhs.buffer && lhs.bounds == rhs.bounds && lhs.columns == rhs.columns
+    func samePresentation(as rhs: Self) -> Bool {
+        let lhs = self
+        return lhs.buffer === rhs.buffer && lhs.bounds == rhs.bounds && lhs.columns == rhs.columns
             && lhs.firstRow == rhs.firstRow && lhs.reverse == rhs.reverse && lhs.blink == rhs.blink
             && lhs.bright == rhs.bright && lhs.customGlyphs == rhs.customGlyphs
-            && lhs.antiAliasGlyphs == rhs.antiAliasGlyphs && lhs.cells == rhs.cells
+            && lhs.antiAliasGlyphs == rhs.antiAliasGlyphs
+    }
+    static func ==(lhs: Self, rhs: Self) -> Bool {
+        lhs.samePresentation(as: rhs) && lhs.cells == rhs.cells
     }
 }
 
 extension TerminalView {
+    func clearTextLayoutCache() {
+        lastTextLayoutSnapshot = nil
+        textLayouts.removeAll(keepingCapacity: false)
+    }
+
+    /// Keep only layouts for unchanged rows of this text-only viewport. Complex
+    /// presentation uses the original path, and no scrollback is cached.
+    func prepareTextLayoutsForDraw() {
+        guard let snapshot = textDisplaySnapshot() else {
+            clearTextLayoutCache(); return
+        }
+        if let previous = lastTextLayoutSnapshot, previous.samePresentation(as: snapshot) {
+            textLayouts = textLayouts.filter { row, _ in
+                let offset = row - snapshot.firstRow
+                return offset >= 0 && offset < snapshot.cells.count && offset < previous.cells.count
+                    && snapshot.cells[offset] == previous.cells[offset]
+            }
+        } else {
+            textLayouts.removeAll(keepingCapacity: false)
+        }
+        lastTextLayoutSnapshot = snapshot
+    }
+
+    func textLayoutForDraw(row: Int, line: BufferLine, cols: Int) -> ViewLineInfo {
+        guard let snapshot = lastTextLayoutSnapshot,
+              row >= snapshot.firstRow, row < snapshot.firstRow + snapshot.cells.count else {
+            return buildAttributedString(row: row, line: line, cols: cols)
+        }
+        if let cached = textLayouts[row] { return cached }
+        let layout = buildAttributedString(row: row, line: line, cols: cols)
+        textLayouts[row] = layout
+        return layout
+    }
+
     func textDisplaySnapshot() -> TextDisplaySnapshot? {
         let buffer = terminal.displayBuffer
         // Complex presentation keeps the existing renderer path. This is a cache
