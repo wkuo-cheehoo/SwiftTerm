@@ -4,6 +4,24 @@ import AppKit
 import XCTest
 
 @MainActor final class TerminalDirtyRegionProbeTests: XCTestCase {
+    final class Counter: AccessibilityService {
+        var count = 0
+        override func invalidate() { count += 1 }
+    }
+    func testIdenticalPixelsDoNotSuppressAccessibilityInvalidation() {
+        _ = NSApplication.shared
+        let view = TerminalView(frame: NSRect(x:0,y:0,width:800,height:500))
+        let counter = Counter()
+        view.accessibility = counter
+        view.getTerminal().feed(text: "\u{1b}[?25lhello")
+        view.updateDisplay(notifyAccessibility:true)
+        XCTAssertEqual(counter.count,1)
+        view.needsDisplay = false
+        view.getTerminal().feed(text: "\u{1b}[Hhello")
+        view.updateDisplay(notifyAccessibility:true)
+        XCTAssertEqual(counter.count,2,"Redraw suppression must preserve requested accessibility updates")
+    }
+
     final class Probe: TerminalView {
         var areas: [CGFloat] = []
         override func draw(_ rect: NSRect) { areas.append(rect.width * rect.height); super.draw(rect) }

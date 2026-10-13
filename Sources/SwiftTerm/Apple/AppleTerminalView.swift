@@ -2340,6 +2340,22 @@ extension TerminalView {
 
         terminal.clearUpdateRange ()
 
+        // Text invalidation can be skipped, but observers still need this update.
+        defer {
+            updateDebugDisplay ()
+
+            if (notifyAccessibility) {
+                accessibility.invalidate ()
+                #if os(iOS)
+                UIAccessibility.post(notification: .layoutChanged, argument: nil)
+                #endif
+                #if os(macOS)
+                NSAccessibility.post (element: self, notification: .valueChanged)
+                NSAccessibility.post (element: self, notification: .selectedTextChanged)
+                #endif
+            }
+        }
+
         #if os(macOS)
         // Preserve explicit AppKit invalidation (font/palette, selection, expose,
         // resize, etc.) and the Metal renderer. Only suppress a new data-driven
@@ -2463,18 +2479,7 @@ extension TerminalView {
         #endif
         #endif
 
-        updateDebugDisplay ()
-        
-        if (notifyAccessibility) {
-            accessibility.invalidate ()
-            #if os(iOS)
-            UIAccessibility.post(notification: .layoutChanged, argument: nil)
-            #endif
-            #if os(macOS)
-            NSAccessibility.post (element: self, notification: .valueChanged)
-            NSAccessibility.post (element: self, notification: .selectedTextChanged)
-            #endif
-        }
+
     }
     
     func updateCursorPosition()
