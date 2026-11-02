@@ -287,6 +287,9 @@ extension TerminalView {
 
     func resetCaches ()
     {
+        #if os(macOS)
+        lastTextDisplaySnapshot = nil
+        #endif
         self.attributes = [:]
         self.urlAttributes = [:]
         self.colors = Array(repeating: nil, count: 256)
@@ -565,6 +568,9 @@ extension TerminalView {
     // Clears the cached state for colors and triggers a full display
     func colorsChanged ()
     {
+        #if os(macOS)
+        lastTextDisplaySnapshot = nil
+        #endif
         urlAttributes = [:]
         attributes = [:]
         clearCGColorCache()
@@ -2334,6 +2340,34 @@ extension TerminalView {
 
         terminal.clearUpdateRange ()
 
+        // Text invalidation can be skipped, but observers still need this update.
+        defer {
+            updateDebugDisplay ()
+
+            if (notifyAccessibility) {
+                accessibility.invalidate ()
+                #if os(iOS)
+                UIAccessibility.post(notification: .layoutChanged, argument: nil)
+                #endif
+                #if os(macOS)
+                NSAccessibility.post (element: self, notification: .valueChanged)
+                NSAccessibility.post (element: self, notification: .selectedTextChanged)
+                #endif
+            }
+        }
+
+        #if os(macOS)
+        // Preserve explicit AppKit invalidation (font/palette, selection, expose,
+        // resize, etc.) and the Metal renderer. Only suppress a new data-driven
+        // invalidation when the visible text is unchanged since the last update.
+        if metalView == nil {
+            let snapshot = textDisplaySnapshot()
+            let unchanged = snapshot != nil && snapshot == lastTextDisplaySnapshot
+            lastTextDisplaySnapshot = snapshot
+            if unchanged && !needsDisplay { return }
+        }
+        #endif
+
         #if os(macOS)
         let displayBuffer = terminal.displayBuffer
         var redrawStart = rowStart
@@ -2445,18 +2479,7 @@ extension TerminalView {
         #endif
         #endif
 
-        updateDebugDisplay ()
-        
-        if (notifyAccessibility) {
-            accessibility.invalidate ()
-            #if os(iOS)
-            UIAccessibility.post(notification: .layoutChanged, argument: nil)
-            #endif
-            #if os(macOS)
-            NSAccessibility.post (element: self, notification: .valueChanged)
-            NSAccessibility.post (element: self, notification: .selectedTextChanged)
-            #endif
-        }
+
     }
     
     func updateCursorPosition()
