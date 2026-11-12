@@ -7427,11 +7427,13 @@ open class Terminal {
         let lastChar: Character
     }
 
+    private static let ghosttyURLSchemes = #"https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:"#
+
     // Ghostty-style URL/path pattern adapted for ICU regex.
     // Oniguruma uses a variable-length lookbehind in one branch; we keep
     // compatibility by applying an equivalent post-match suppression rule.
     private static let ghosttyImplicitLinkRegex: NSRegularExpression? = {
-        let urlSchemes = #"https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:"#
+        let urlSchemes = Terminal.ghosttyURLSchemes
         // NOTE: this used to be `\[[:0-9a-fA-F]+(?:[:0-9a-fA-F]*)+\]`. That inner `(?:X*)+` is a
         // classic catastrophic-backtracking construct: on input that opens a bracket but never
         // closes it (e.g. `https://[aaaaaaaa...`), ICU explores exponentially many ways to split
@@ -7502,6 +7504,18 @@ open class Terminal {
 
         let regex = schemeURLBranch + "|" + rootedOrRelativePathBranch + "|" + bareRelativePathBranch
         return try? NSRegularExpression(pattern: regex, options: [])
+    }()
+
+    // The start of a row that opens a new line of output: a list item ("5. ", "- "), a home
+    // path, or a web address. Such a row is never the rest of the row above.
+    // A lone "/" and "./" or "../" are deliberately absent: they also occur inside paths
+    // ("../../src", where a break can leave "./src" or "../src" on the lower row), and a
+    // renderer that breaks a long path there must still have the two rows joined.
+    private static let ghosttyNewLineStartRegex: NSRegularExpression? = {
+        let listMarker = #"(?:[-*+]|[0-9]{1,3}[.)]) "#
+        let homePath = #"~/"#
+        let pattern = "^(?:" + listMarker + "|" + homePath + "|" + Terminal.ghosttyURLSchemes + ")"
+        return try? NSRegularExpression(pattern: pattern, options: [])
     }()
 
     private static let ghosttyContinuationCharacters = CharacterSet(
@@ -7649,6 +7663,12 @@ open class Terminal {
             return false
         }
 
+        // A numbered list of paths with spaces would otherwise read as one link that names
+        // no file when a path ends near the edge: "4. /x/data.pdf" + "5. /x/Folder with spaces".
+        if startsNewImplicitLine(row: lower, firstCol: lowerInfo.firstCol, in: buffer) {
+            return false
+        }
+
         return seamContainsGhosttyImplicitLink(
             upper: upper,
             lower: lower,
@@ -7656,6 +7676,19 @@ open class Terminal {
             lowerFirstCol: lowerInfo.firstCol,
             in: buffer
         )
+    }
+
+    private func startsNewImplicitLine(row: Int, firstCol: Int, in buffer: Buffer) -> Bool
+    {
+        guard let regex = Self.ghosttyNewLineStartRegex else {
+            return false
+        }
+        let line = buffer.lines[row]
+        let lineLimit = min(min(cols, line.count), line.getTrimmedLength())
+        // The longest start is a scheme such as "gemini://"; 16 cells cover every branch.
+        let text = implicitLineSegmentText(line: line, startCol: firstCol, endCol: min(lineLimit, firstCol + 16))
+        let searchRange = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.firstMatch(in: text, options: [], range: searchRange) != nil
     }
 
     private func linkRowEdgeInfo(row: Int, in buffer: Buffer) -> LinkRowEdgeInfo?

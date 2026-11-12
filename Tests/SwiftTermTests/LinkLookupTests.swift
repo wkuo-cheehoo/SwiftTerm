@@ -175,6 +175,33 @@ final class LinkLookupTests: TerminalDelegate {
         #expect(wrappedRowLink == firstSegment + "and/keeps/going")
     }
 
+    @Test func testImplicitLookupDoesNotJoinARowThatStartsANewListItem() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 40, rows: 3))
+        let edgePath = "4. /tmp/QA/" + String(repeating: "a", count: 20) + "/data.pdf"
+        #expect(edgePath.count == 40)
+        write(edgePath, terminal: terminal, row: 0)
+        write("5. /tmp/QA/Folder with spaces", terminal: terminal, row: 1)
+
+        let edgeLink = terminal.link(at: .buffer(Position(col: 36, row: 0)), mode: .explicitAndImplicit)
+        #expect(edgeLink == String(edgePath.dropFirst(3)))
+
+        let nextLink = terminal.link(at: .buffer(Position(col: 20, row: 1)), mode: .explicitAndImplicit)
+        #expect(nextLink == "/tmp/QA/Folder with spaces")
+    }
+
+    @Test func testImplicitLookupStillJoinsARelativePathBrokenInsideADotDotSegment() {
+        let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 40, rows: 3))
+        // The break falls between the two dots of "..", leaving "./src" on the lower row.
+        let upper = "x " + String(repeating: "../", count: 12) + "."
+        #expect(upper.count == 39)
+        write(upper, terminal: terminal, row: 0)
+        write("./src/main.swift", terminal: terminal, row: 1)
+
+        let joined = String(repeating: "../", count: 13) + "src/main.swift"
+        #expect(terminal.link(at: .buffer(Position(col: 20, row: 0)), mode: .explicitAndImplicit) == joined)
+        #expect(terminal.link(at: .buffer(Position(col: 8, row: 1)), mode: .explicitAndImplicit) == joined)
+    }
+
     @Test func testImplicitUrlLookupDoesNotJoinUnrelatedRows() {
         let terminal = Terminal(delegate: self, options: TerminalOptions(cols: 92, rows: 3))
         write("https://example.com", terminal: terminal, row: 0)
